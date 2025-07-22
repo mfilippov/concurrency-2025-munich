@@ -31,10 +31,12 @@ class RendezvousChannel<E : Any> {
         while (true) {
             // TODO: feel free to change this code if needed.
             // Is this queue empty or contain other senders?
+            val curHead = head.get()
+            val curTail = tail.get()
             if (isEmptyOrContainsSenders()) {
                 val success = suspendCoroutine<Boolean> { continuation ->
                     val node = Node(element, continuation as Continuation<Any?>)
-                    if (!tryAddNode(tail.get(), node)) {
+                    if (!tryAddNode(curTail, node)) {
                         // Fail and retry.
                         continuation.resume(false)
                     }
@@ -43,7 +45,7 @@ class RendezvousChannel<E : Any> {
                 if (success) return
             } else {
                 // The queue contains receivers, try to extract the first one.
-                val firstReceiver = tryExtractNode(head.get()) ?: continue
+                val firstReceiver = tryExtractNode(curHead) ?: continue
                 firstReceiver.continuation!!.resume(element)
                 return
             }
@@ -54,10 +56,12 @@ class RendezvousChannel<E : Any> {
         while (true) {
             // TODO: feel free to change this code if needed.
             // Is this queue empty or contain other receivers?
+            val curHead = head.get()
+            val curTail = tail.get()
             if (isEmptyOrContainsReceivers()) {
                 val element = suspendCoroutine<E?> { continuation ->
                     val node = Node(RECEIVER, continuation as Continuation<Any?>)
-                    if (!tryAddNode(tail.get(), node)) {
+                    if (!tryAddNode(curTail, node)) {
                         // Fail and retry.
                         continuation.resume(null)
                     }
@@ -68,7 +72,7 @@ class RendezvousChannel<E : Any> {
                 return element
             } else {
                 // The queue contains senders, try to extract the first one.
-                val firstSender = tryExtractNode(head.get()) ?: continue
+                val firstSender = tryExtractNode(curHead) ?: continue
                 firstSender.continuation!!.resume(true)
                 return firstSender.element as E
             }
@@ -76,31 +80,56 @@ class RendezvousChannel<E : Any> {
     }
 
     private fun isEmptyOrContainsReceivers(): Boolean {
-        TODO(" Implement me!")
+        // TODO(" Implement me!")
         // For receivers, Node.element === RECEIVER
+        val next = head.get().next.get()
+        return next == null || next.element === RECEIVER
     }
 
     private fun isEmptyOrContainsSenders(): Boolean {
-        TODO(" Implement me!")
+        //TODO(" Implement me!")
         // For senders, Node.element !== RECEIVER
+        return head.get().next.get()?.element !== RECEIVER
     }
 
     private fun tryAddNode(curTail: Node, newNode: Node): Boolean {
-        TODO("Implement me!")
+        // TODO("Implement me!")
         // TODO: Return `false` if the attempt has failed.
+        val next = curTail.next.get()
+        if (next != null) {
+            tail.compareAndSet(curTail, next)
+            return false
+        }
+        val curHead = head.get()
+        if ((curTail != curHead) && (newNode.element === RECEIVER) != (curTail.element === RECEIVER)) {
+            return false
+        }
+        if (!curTail.next.compareAndSet(null, newNode)) {
+            return false
+        }
+        tail.compareAndSet(curTail, newNode)
+        return true
     }
 
     private fun tryExtractNode(curHead: Node): Node? {
-        TODO("Implement me!")
+        // TODO("Implement me!")
         // TODO: Return a node with the extracted continuation & element.
+        val next = curHead.next.get() ?: return null
+        if (head.compareAndSet(curHead, next)) {
+            val result = Node(next.element, next.continuation)
+            next.element = null
+            next.continuation = null
+            return result
+        }
+        return null
     }
 
     class Node(
         // Sending element in case of suspended `send()` or
         // RECEIVER in case of suspended `receive()`.
-        val element: Any?,
+        var element: Any?,
         // Suspended `send` of `receive` request.
-        val continuation: Continuation<Any?>?
+        var continuation: Continuation<Any?>?
     ) {
         val next = AtomicReference<Node?>(null)
     }
