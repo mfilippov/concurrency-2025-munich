@@ -18,7 +18,22 @@ class MSQueueWithLinearTimeNonParallelRemove<E> : QueueWithRemove<E> {
         // TODO: When adding a new node, check whether
         // TODO: the previous tail is logically removed.
         // TODO: If so, remove it physically from the linked list.
-        TODO("Implement me!")
+        val node = Node(element)
+        while(true) {
+            val curTail = tail.get()
+
+            if (curTail.next.compareAndSet(null, node)) {
+                if (tail.compareAndSet(curTail, node)) {
+                    if (curTail.extractedOrRemoved) {
+                        val prev = findPrev(curTail)
+                        prev?.next?.compareAndSet(curTail, node)
+                    }
+                }
+                return
+            } else {
+                tail.compareAndSet(curTail, curTail.next.get())
+            }
+        }
     }
 
     override fun dequeue(): E? {
@@ -26,7 +41,16 @@ class MSQueueWithLinearTimeNonParallelRemove<E> : QueueWithRemove<E> {
         // TODO: mark the node that contains the extracting
         // TODO: element as "extracted or removed", restarting
         // TODO: the operation if this node has already been removed.
-        TODO("Implement me!")
+        while(true) {
+            val curHead = head.get()
+            val next = curHead.next.get() ?: return null
+            if (head.compareAndSet(curHead, next)) {
+                val result = next.element
+                if (next.remove()) {
+                    return result
+                }
+            }
+        }
     }
 
     override fun remove(element: E): Boolean {
@@ -60,6 +84,14 @@ class MSQueueWithLinearTimeNonParallelRemove<E> : QueueWithRemove<E> {
             }
             node = node.next.get() ?: break
         }
+    }
+
+    private fun findPrev(node: Node): Node? {
+        var cur = head.get()
+        while (cur.next.get() != node) {
+            cur = cur.next.get() ?: return null
+        }
+        return cur
     }
 
     // TODO: Node is an inner class for accessing `head` in `remove()`
@@ -97,7 +129,16 @@ class MSQueueWithLinearTimeNonParallelRemove<E> : QueueWithRemove<E> {
             // TODO: Do not remove `head` and `tail` physically to make
             // TODO: the algorithm simpler. In case a tail node is logically removed,
             // TODO: it will be removed physically by `enqueue(..)`.
-            TODO("Implement me!")
+            if (markExtractedOrRemoved()) {
+                element = null
+                if (tail.get() != this) {
+                    val prev = findPrev(this)
+                    prev?.next?.compareAndSet(this, this.next.get())
+                }
+                return true
+            }
+            return false
+
         }
     }
 }
