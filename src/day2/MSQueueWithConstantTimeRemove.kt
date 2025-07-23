@@ -18,7 +18,19 @@ class MSQueueWithConstantTimeRemove<E> : QueueWithRemove<E> {
         // TODO: When adding a new node, check whether
         // TODO: the previous tail is logically removed.
         // TODO: If so, remove it physically from the linked list.
-        TODO("Implement me!")
+        while (true) {
+            val curTail = tail.get()
+            val node = Node(element, curTail)
+            if (curTail.next.compareAndSet(null, node)) {
+                tail.compareAndSet(curTail, node)
+                if (curTail.extractedOrRemoved) {
+                    curTail.remove()
+                }
+                return
+            } else {
+                tail.compareAndSet(curTail, curTail.next.get())
+            }
+        }
     }
 
     override fun dequeue(): E? {
@@ -26,7 +38,16 @@ class MSQueueWithConstantTimeRemove<E> : QueueWithRemove<E> {
         // TODO: mark the node that contains the extracting
         // TODO: element as "extracted or removed", restarting
         // TODO: the operation if this node has already been removed.
-        TODO("Implement me!")
+        while (true) {
+            val curHead = head.get()
+            val curHeadNext = curHead.next.get() ?: return null
+            curHeadNext.prev.set(null)
+            if (head.compareAndSet(curHead, curHeadNext)) {
+                if (curHeadNext.markExtractedOrRemoved()) {
+                    return curHeadNext.element
+                }
+            }
+        }
     }
 
     override fun remove(element: E): Boolean {
@@ -117,7 +138,20 @@ class MSQueueWithConstantTimeRemove<E> : QueueWithRemove<E> {
             // TODO: it is totally fine to have a bounded number of removed nodes
             // TODO: in the linked list, especially when it significantly simplifies
             // TODO: the algorithm.
-            TODO("Implement me!")
+            val removed = markExtractedOrRemoved()
+            val curNext = next.get() ?: return removed
+            val curPrev = prev.get() ?: return removed
+
+            curPrev.next.compareAndSet(this, curNext)
+            curNext.prev.compareAndSet(this, curPrev)
+
+            if (curPrev.extractedOrRemoved) {
+                curPrev.remove()
+            }
+            if (curNext.extractedOrRemoved) {
+                curNext.remove()
+            }
+            return removed
         }
     }
 }
