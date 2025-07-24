@@ -1,7 +1,6 @@
 package day3
 
 import java.util.concurrent.atomic.*
-import java.util.concurrent.locks.*
 
 // This implementation never stores `null` values.
 class AtomicArrayWithCAS2OnLockedState<E : Any>(size: Int, initialValue: E) {
@@ -16,7 +15,12 @@ class AtomicArrayWithCAS2OnLockedState<E : Any>(size: Int, initialValue: E) {
 
     fun get(index: Int): E {
         // TODO: Cover the case when the cell state is LOCKED.
-        return array[index] as E
+        while(true) {
+            val value = array[index]
+            if (value != LOCKED) {
+                return value as E
+            }
+        }
     }
 
     fun cas2(
@@ -26,12 +30,25 @@ class AtomicArrayWithCAS2OnLockedState<E : Any>(size: Int, initialValue: E) {
         require(index1 != index2) { "The indices should be different" }
         // TODO: Make me thread-safe by "locking" the cells
         // TODO: via atomically changing their states to LOCKED.
-        if (array[index1] === expected1 && array[index2] === expected2) {
-            array.set(index1, update1)
-            array.set(index2, update2)
-            return true
-        } else {
-            return false
+        if (index1 > index2) {
+            return cas2(index2, expected2, update2, index1, expected1, update1)
+        }
+
+        fun withLock(index: Int, expected: E, update: E, block: () -> Boolean): Boolean {
+            while(true) {
+                val value = array[index]
+                if (value == LOCKED) continue
+                if (value != expected) return false
+
+                if (array.compareAndSet(index, expected, LOCKED)) {
+                    val success = block()
+                    array.set(index, if (success) update else expected)
+                    return success
+                }
+            }
+        }
+        return withLock(index1, expected1, update1) {
+            withLock(index2, expected2, update2, {true})
         }
     }
 }
