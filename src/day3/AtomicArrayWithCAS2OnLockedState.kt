@@ -17,7 +17,7 @@ class AtomicArrayWithCAS2OnLockedState<E : Any>(size: Int, initialValue: E) {
         // TODO: Cover the case when the cell state is LOCKED.
         while(true) {
             val value = array[index]
-            if (value != LOCKED) {
+            if (value !== LOCKED) {
                 return value as E
             }
         }
@@ -34,22 +34,27 @@ class AtomicArrayWithCAS2OnLockedState<E : Any>(size: Int, initialValue: E) {
             return cas2(index2, expected2, update2, index1, expected1, update1)
         }
 
-        fun withLock(index: Int, expected: E, update: E, block: () -> Boolean): Boolean {
-            while(true) {
-                val value = array[index]
-                if (value == LOCKED) continue
-                if (value != expected) return false
-
-                if (array.compareAndSet(index, expected, LOCKED)) {
-                    val success = block()
-                    array.set(index, if (success) update else expected)
-                    return success
+        fun lockCell(index: Int, expected: E): Boolean {
+            while (true) {
+                return when (array[index]) {
+                    LOCKED -> continue
+                    expected if array.compareAndSet(index, expected, LOCKED) -> true
+                    expected -> continue
+                    else -> false
                 }
             }
         }
-        return withLock(index1, expected1, update1) {
-            withLock(index2, expected2, update2, {true})
+
+        if (!lockCell(index1, expected1)) {
+            return false
         }
+        if (!lockCell(index2, expected2)) {
+            array[index1] = expected1
+            return false
+        }
+        array[index1] = update1
+        array[index2] = update2
+        return true
     }
 }
 
