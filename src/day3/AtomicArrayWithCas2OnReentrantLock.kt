@@ -2,6 +2,7 @@ package day3
 
 import java.util.concurrent.atomic.*
 import java.util.concurrent.locks.*
+import kotlin.concurrent.withLock
 
 // This implementation never stores `null` values.
 class AtomicArrayWithCas2OnReentrantLock<E : Any>(size: Int, initialValue: E) {
@@ -19,7 +20,9 @@ class AtomicArrayWithCas2OnReentrantLock<E : Any>(size: Int, initialValue: E) {
 
     fun get(index: Int): E {
         // TODO: Guard this function with the cell lock.
-        return array[index]
+        locks[index].withLock {
+            return array[index]
+        }
     }
 
     fun cas2(
@@ -29,12 +32,17 @@ class AtomicArrayWithCas2OnReentrantLock<E : Any>(size: Int, initialValue: E) {
         require(index1 != index2) { "The indices should be different" }
         // TODO: Guard this function with the cell locks
         // TODO: following the fine-grained locking approach.
-        if (array[index1] === expected1 && array[index2] === expected2) {
-            array.set(index1, update1)
-            array.set(index2, update2)
-            return true
-        } else {
-            return false
+        val (i1, i2) = if (index1 < index2) index1 to index2 else index2 to index1
+        locks[i1].withLock {
+            locks[i2].withLock {
+                if (array[index1] === expected1 && array[index2] === expected2) {
+                    array.set(index1, update1)
+                    array.set(index2, update2)
+                    return true
+                } else {
+                    return false
+                }
+            }
         }
     }
 }
