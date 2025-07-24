@@ -4,6 +4,7 @@ package day3
 
 import day3.AtomicArrayWithCAS2AndImplementedDCSS.Status.*
 import java.util.concurrent.atomic.*
+import kotlin.math.PI
 
 // This implementation never stores `null` values.
 class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E) {
@@ -16,9 +17,38 @@ class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E)
         }
     }
 
+    private fun AtomicArrayWithCAS2AndImplementedDCSS<*>.CAS2Descriptor.getExpected(index: Int): E {
+        return (if (index == this.index1) this.expected1 else this.expected2) as E
+    }
+
+    private fun AtomicArrayWithCAS2AndImplementedDCSS<*>.CAS2Descriptor.getUpdate(index: Int): E {
+        return (if (index == this.index1) this.update1 else this.update2) as E
+    }
+
+
     fun get(index: Int): E {
         // TODO: Copy the implementation from `AtomicArrayWithCAS2Simplified`
-        TODO("Implement me")
+        val value = array[index]
+        return when {
+            value is AtomicArrayWithCAS2AndImplementedDCSS<*>.CAS2Descriptor -> {
+                val expected = value.getExpected(index)
+                when (value.status.get()) {
+                    FAILED -> {
+                        array.compareAndSet(index, value, expected)
+                        return expected
+                    }
+                    SUCCESS -> {
+                        val update = value.getUpdate(index)
+                        array.compareAndSet(index, value, update)
+                        return update
+                    }
+                    UNDECIDED -> {
+                        return expected
+                    }
+                }
+            }
+            else -> value as E
+        }
     }
 
     fun cas2(
@@ -26,10 +56,17 @@ class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E)
         index2: Int, expected2: E, update2: E
     ): Boolean {
         require(index1 != index2) { "The indices should be different" }
-        val descriptor = CAS2Descriptor(
-            index1 = index1, expected1 = expected1, update1 = update1,
-            index2 = index2, expected2 = expected2, update2 = update2
-        )
+        val descriptor = if (index1 > index2) {
+            CAS2Descriptor(
+                index1 = index2, expected1 = expected2, update1 = update2,
+                index2 = index1, expected2 = expected1, update2 = update1
+            )
+        } else {
+            CAS2Descriptor(
+                index1 = index1, expected1 = expected1, update1 = update1,
+                index2 = index2, expected2 = expected2, update2 = update2
+            )
+        }
         descriptor.apply()
         return descriptor.status.get() === SUCCESS
     }
@@ -50,16 +87,58 @@ class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E)
             applyPhysically()
         }
 
+        private fun installCell(index: Int, expected: E): Boolean {
+            while (true) {
+                when (status.get()) {
+                    SUCCESS -> return true
+                    FAILED -> return false
+                    UNDECIDED -> {}
+                }
+
+                val value = array[index]
+                if (value == expected) {
+                    if (dcss(index, expected, this, status, UNDECIDED)) {
+                        return true
+                    }
+                    continue
+                }
+
+                if (value is AtomicArrayWithCAS2AndImplementedDCSS<*>.CAS2Descriptor) {
+                    if (value === this) {
+                        // someone helped us
+                        return true
+                    }
+
+                    value.apply()
+                    continue
+                }
+
+                return false
+            }
+        }
+
         private fun installDescriptor(): Boolean {
             // TODO: Install this descriptor to the cells,
             // TODO: returning `true` on success, and `false`
             // TODO: if one of the cells contained an unexpected value.
-            TODO("Implement me!")
+            if (!installCell(index1, expected1)) {
+                return false
+            }
+
+            if (!installCell(index2, expected2)) {
+                return false
+            }
+            return true
         }
 
         private fun applyLogically(success: Boolean) {
             // TODO: Apply this CAS2 operation logically
             // TODO: by updating the descriptor status.
+            if (success) {
+                status.compareAndSet(UNDECIDED, SUCCESS)
+            } else {
+                status.compareAndSet(UNDECIDED, FAILED)
+            }
         }
 
         private fun applyPhysically() {
@@ -67,6 +146,14 @@ class AtomicArrayWithCAS2AndImplementedDCSS<E : Any>(size: Int, initialValue: E)
             // TODO: by updating the cells to either
             // TODO: update values (on success)
             // TODO: or back to expected values (on failure).
+            val status = status.get()
+            if (status == SUCCESS) {
+                array.compareAndSet(index1, this, update1)
+                array.compareAndSet(index2, this, update2)
+            } else {
+                array.compareAndSet(index1, this, expected1)
+                array.compareAndSet(index2, this, expected2)
+            }
         }
     }
 
