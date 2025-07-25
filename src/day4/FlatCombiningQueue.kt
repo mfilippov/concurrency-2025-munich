@@ -31,20 +31,62 @@ open class FlatCombiningQueue<E : Any> : Queue<E> {
         // TODO:      `null` with `Dequeue`. Wait until either the cell state
         // TODO:      updates to `Result` (do not forget to clean it in this case),
         // TODO:      or `combinerLock` becomes available to acquire.
-        return operation()
+        var index: Int = -1
+
+        while(true) {
+            if (tryAcquireLock()) {
+                try {
+                    helpOthers()
+                    if (index > -1) {
+                        val element = tasksForCombiner.get(index)
+                        if(element is Result<*>) {
+                            tasksForCombiner.set(index, null)
+                            return element.value as R
+                        }
+                        tasksForCombiner.set(index, null)
+                    }
+                    return operation()
+                } finally {
+                    releaseLock()
+                }
+            } else if (index == -1) {
+                index = randomCellIndex()
+                if (!tasksForCombiner.compareAndSet(index, null, task)) {
+                    index = -1
+                    continue
+                }
+            } else {
+                val element = tasksForCombiner.get(index)
+                if (element is Result<*>) {
+                    tasksForCombiner.set(index, null)
+                    return element.value as R
+                }
+            }
+        }
     }
 
     private fun helpOthers() {
         // TODO: Traverse `tasksForCombiner` and perform the announced operations,
         // TODO: updating the corresponding cells to `Result`.
+        for (i in 0..<TASKS_FOR_COMBINER_SIZE) {
+            val element = tasksForCombiner.get(i) ?: continue
+            if (element === Dequeue) {
+                tasksForCombiner.set(i, Result(queue.removeFirstOrNull()))
+            } else if (element !is Result<*>) {
+                queue.add(element as E)
+                tasksForCombiner.set(i, Result(Unit))
+            }
+        }
     }
 
     private fun tryAcquireLock(): Boolean {
-        TODO("Try to acquire combinerLock by changing `combinerLock` from `false` (unlocked) to `true` (locked).")
+        //TODO("Try to acquire combinerLock by changing `combinerLock` from `false` (unlocked) to `true` (locked).")
+        return combinerLock.compareAndSet(false, true)
     }
 
     open fun releaseLock() {
-        TODO("Release combinerLock by changing `combinerLock` to `false` (unlocked).")
+        //TODO("Release combinerLock by changing `combinerLock` to `false` (unlocked).")
+        combinerLock.compareAndSet(true, false)
     }
 
     private fun randomCellIndex(): Int =
